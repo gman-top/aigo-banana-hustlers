@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Banana Hustlers - AIGO Demo</title>
+    <style>
+        body { margin: 0; padding: 0; overflow: hidden; background: #000; }
+        canvas { display: block; width: 100vw; height: 100vh; }
+        #ui { position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%); text-align: center; font-family: sans-serif; pointer-events: none; }
+        .btn { pointer-events: auto; background: #FFD700; border: 4px solid #FFA500; color: #333; padding: 15px 40px; font-size: 24px; font-weight: bold; border-radius: 50px; cursor: pointer; text-transform: uppercase; box-shadow: 0 5px 0 #CC8400; transition: transform 0.1s; }
+        .btn:active { transform: translateY(5px); box-shadow: 0 0 0 #CC8400; }
+    </style>
+    <!-- Load PixiJS & GSAP -->
+    <script src="https://pixijs.download/v8.1.0/pixi.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/PixiPlugin.min.js"></script>
+</head>
+<body>
+
+<div id="ui">
+    <button class="btn" id="spinBtn">SPIN 🍌</button>
+</div>
+
+<script type="module">
+    // --- CONFIG ---
+    const ASSETS = {
+        bg: './assets/background.png',
+        logo: './assets/ui_freespins.png',
+        sym1: './assets/symbol_surf.png',
+        sym2: './assets/symbol_glasses.png',
+        sym3: './assets/symbol_banana.png',
+        sym4: './assets/symbol_coconut.png'
+    };
+
+    const REELS = 5;
+    const ROWS = 3;
+    const SYMBOL_SIZE = 180;
+    const REEL_WIDTH = 200;
+    
+    // Setup PixiJS App
+    const app = new PIXI.Application();
+    await app.init({ resizeTo: window, background: '#1099bb' });
+    document.body.appendChild(app.canvas);
+
+    // Register GSAP Plugin
+    gsap.registerPlugin(PixiPlugin);
+    PixiPlugin.registerPIXI(PIXI);
+
+    // Load Assets
+    for (const [key, url] of Object.entries(ASSETS)) {
+        PIXI.Assets.add({ alias: key, src: url });
+    }
+    const textures = await PIXI.Assets.load(Object.keys(ASSETS));
+
+    // --- SCENE SETUP ---
+    
+    // Background (Cover Mode)
+    const bg = new PIXI.Sprite(textures.bg);
+    bg.anchor.set(0.5);
+    bg.x = app.screen.width / 2;
+    bg.y = app.screen.height / 2;
+    
+    // Scale BG to cover screen
+    const scaleX = app.screen.width / bg.width;
+    const scaleY = app.screen.height / bg.height;
+    const scale = Math.max(scaleX, scaleY);
+    bg.scale.set(scale);
+    
+    app.stage.addChild(bg);
+
+    // Reel Container
+    const reelContainer = new PIXI.Container();
+    reelContainer.x = (app.screen.width - (REEL_WIDTH * REELS)) / 2 + (REEL_WIDTH / 2);
+    reelContainer.y = (app.screen.height - (SYMBOL_SIZE * ROWS)) / 2 + (SYMBOL_SIZE / 2);
+    app.stage.addChild(reelContainer);
+
+    // Create Reels
+    const reels = [];
+    const symbolTextures = [textures.sym1, textures.sym2, textures.sym3, textures.sym4];
+
+    for (let i = 0; i < REELS; i++) {
+        const rc = new PIXI.Container();
+        rc.x = i * REEL_WIDTH;
+        reelContainer.addChild(rc);
+
+        const reel = {
+            container: rc,
+            symbols: [],
+            position: 0,
+            previousPosition: 0,
+            blur: new PIXI.BlurFilter()
+        };
+        
+        reel.blur.blurX = 0;
+        reel.blur.blurY = 0;
+        rc.filters = [reel.blur];
+
+        // Fill Reel with Symbols (Active + Buffer)
+        for (let j = 0; j < ROWS + 2; j++) { // +2 buffer for seamless loop
+            const symbol = new PIXI.Sprite(symbolTextures[Math.floor(Math.random() * symbolTextures.length)]);
+            symbol.anchor.set(0.5);
+            symbol.scale.set(0.5); // Adjust based on asset size
+            symbol.y = j * SYMBOL_SIZE;
+            rc.addChild(symbol);
+            reel.symbols.push(symbol);
+        }
+        reels.push(reel);
+    }
+
+    // Header Logo
+    const logo = new PIXI.Sprite(textures.logo);
+    logo.anchor.set(0.5);
+    logo.scale.set(0.6);
+    logo.x = app.screen.width / 2;
+    logo.y = 100;
+    app.stage.addChild(logo);
+
+    // --- GAME LOGIC ---
+
+    let running = false;
+
+    // Spin Function
+    function spin() {
+        if (running) return;
+        running = true;
+
+        reels.forEach((r, i) => {
+            const extra = Math.floor(Math.random() * 3);
+            const target = r.position + 10 + i * 5 + extra;
+            const time = 2 + i * 0.25;
+
+            // Animate position
+            gsap.to(r, {
+                position: target,
+                duration: time,
+                ease: "back.out(0.5)", // The "Bounce" effect
+                onUpdate: () => {
+                    r.blur.blurY = (r.position - r.previousPosition) * 8; // Blur based on speed
+                    r.previousPosition = r.position;
+                    
+                    // Wrap symbols logic
+                    for (let j = 0; j < r.symbols.length; j++) {
+                        const s = r.symbols[j];
+                        // Calculate wrapped Y position
+                        const prevY = s.y;
+                        s.y = ((r.position + j) % r.symbols.length) * SYMBOL_SIZE - SYMBOL_SIZE;
+                        
+                        // If symbol wrapped to top, change texture (simulate endless reel)
+                        if (s.y < 0 && prevY > SYMBOL_SIZE) {
+                            s.texture = symbolTextures[Math.floor(Math.random() * symbolTextures.length)];
+                        }
+                    }
+                },
+                onComplete: () => {
+                    r.blur.blurY = 0;
+                    if (i === reels.length - 1) running = false;
+                }
+            });
+        });
+    }
+
+    // Event Listeners
+    document.getElementById('spinBtn').addEventListener('click', spin);
+    
+    // Ticker for smooth rendering
+    app.ticker.add(() => {
+        // Additional frame logic if needed
+    });
+
+</script>
+</body>
+</html>
