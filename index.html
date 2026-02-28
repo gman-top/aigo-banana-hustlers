@@ -1,224 +1,307 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Banana Hustlers - AIGO v0.2</title>
-    <style>
-        body { margin: 0; padding: 0; overflow: hidden; background: #000; }
-        canvas { display: block; width: 100vw; height: 100vh; }
-    </style>
-    <!-- Load PixiJS & GSAP -->
-    <script src="https://pixijs.download/v8.1.0/pixi.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/PixiPlugin.min.js"></script>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Banana Hustlers v0.3</title>
+  <style>
+    html, body { margin: 0; height: 100%; background: #071a2d; overflow: hidden; }
+    canvas { display: block; }
+  </style>
+  <script src="https://pixijs.download/v8.1.0/pixi.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>
 </head>
 <body>
-
 <script type="module">
-    // --- CONFIG ---
-    const ASSETS = {
-        bg: './assets/background.png',
-        logo: './assets/ui_freespins.png',
-        sym1: './assets/symbol_surf.png',
-        sym2: './assets/symbol_glasses.png',
-        sym3: './assets/symbol_banana.png',
-        sym4: './assets/symbol_coconut.png',
-        // SVG UI
-        btnSpin: './assets/btn_spin.svg',
-        uiBalance: './assets/ui_balance.svg',
-        uiBet: './assets/ui_bet.svg'
-    };
+  const app = new PIXI.Application();
+  await app.init({ resizeTo: window, antialias: true, background: '#0a223b' });
+  document.body.appendChild(app.canvas);
 
-    const REELS = 5;
-    const ROWS = 3;
-    const SYMBOL_SIZE = 180;
-    const REEL_WIDTH = 200;
-    
-    // Setup PixiJS App
-    const app = new PIXI.Application();
-    await app.init({ resizeTo: window, background: '#1099bb', antialias: true });
-    document.body.appendChild(app.canvas);
+  const ASSETS = {
+    bg: './assets/background.png',
+    logo: './assets/ui_freespins.png',
+    surf: './assets/symbol_surf.png',
+    glasses: './assets/symbol_glasses.png',
+    banana: './assets/symbol_banana.png',
+    coconut: './assets/symbol_coconut.png'
+  };
 
-    // Register GSAP Plugin
-    gsap.registerPlugin(PixiPlugin);
-    PixiPlugin.registerPIXI(PIXI);
+  for (const [alias, src] of Object.entries(ASSETS)) PIXI.Assets.add({ alias, src });
+  const t = await PIXI.Assets.load(Object.keys(ASSETS));
 
-    // Load Assets
-    for (const [key, url] of Object.entries(ASSETS)) {
-        PIXI.Assets.add({ alias: key, src: url });
-    }
-    const textures = await PIXI.Assets.load(Object.keys(ASSETS));
+  // --------- CONFIG ---------
+  const COLS = 5;
+  const ROWS = 3;
+  const CELL_W = 160;
+  const CELL_H = 150;
+  const SPACING = 12;
+  const REEL_W = COLS * CELL_W + (COLS - 1) * SPACING;
+  const REEL_H = ROWS * CELL_H + (ROWS - 1) * SPACING;
+  const FREE_TRIGGER = 3;
 
-    // --- SCENE SETUP ---
-    
-    // 1. Background (Cover Mode)
-    const bg = new PIXI.Sprite(textures.bg);
-    bg.anchor.set(0.5);
-    bg.x = app.screen.width / 2;
-    bg.y = app.screen.height / 2;
-    // Scale BG to cover
-    const scaleX = app.screen.width / bg.width;
-    const scaleY = app.screen.height / bg.height;
-    const scale = Math.max(scaleX, scaleY);
-    bg.scale.set(scale);
-    app.stage.addChild(bg);
+  // --------- SCENE ---------
+  const stage = new PIXI.Container();
+  app.stage.addChild(stage);
 
-    // 2. Reel Container (Centered)
-    const reelContainer = new PIXI.Container();
-    reelContainer.x = (app.screen.width - (REEL_WIDTH * REELS)) / 2 + (REEL_WIDTH / 2);
-    reelContainer.y = (app.screen.height - (SYMBOL_SIZE * ROWS)) / 2 + (SYMBOL_SIZE / 2);
-    
-    // Add Drop Shadow Filter to Container (Depth)
-    const dropShadow = new PIXI.AlphaFilter(); // Simple trick, real shadow needs filter plugin
-    // Actually, let's use a simple trick: Draw shadow under symbols
-    
-    app.stage.addChild(reelContainer);
+  const bg = new PIXI.Sprite(t.bg);
+  bg.anchor.set(0.5);
+  stage.addChild(bg);
 
-    // Create Reels
-    const reels = [];
-    const symbolTextures = [textures.sym1, textures.sym2, textures.sym3, textures.sym4];
+  const root = new PIXI.Container();
+  stage.addChild(root);
 
-    for (let i = 0; i < REELS; i++) {
-        const rc = new PIXI.Container();
-        rc.x = i * REEL_WIDTH;
-        reelContainer.addChild(rc);
+  // Panel glass frame
+  const frame = new PIXI.Graphics()
+    .roundRect(-20, -20, REEL_W + 40, REEL_H + 40, 24)
+    .fill({ color: 0x0f2f52, alpha: 0.65 })
+    .stroke({ color: 0x79ecff, width: 4, alpha: 0.9 });
+  frame.filters = [new PIXI.BlurFilter({ strength: 0.5 })];
+  root.addChild(frame);
 
-        const reel = {
-            container: rc,
-            symbols: [],
-            position: 0,
-            previousPosition: 0,
-            blur: new PIXI.BlurFilter()
-        };
-        
-        reel.blur.blurX = 0;
-        reel.blur.blurY = 0;
-        reel.blur.strength = 0;
-        rc.filters = [reel.blur];
+  // Highlight active reel (col 3 visually)
+  const highlight = new PIXI.Graphics()
+    .roundRect((CELL_W + SPACING) * 2 - 8, -8, CELL_W + 16, REEL_H + 16, 18)
+    .stroke({ color: 0xff4de1, width: 3, alpha: 0.95 });
+  root.addChild(highlight);
 
-        // Fill Reel with Symbols (Active + Buffer)
-        for (let j = 0; j < ROWS + 4; j++) { // +4 buffer for longer spin look
-            const symbol = new PIXI.Sprite(symbolTextures[Math.floor(Math.random() * symbolTextures.length)]);
-            symbol.anchor.set(0.5);
-            symbol.scale.set(0.5); 
-            symbol.y = j * SYMBOL_SIZE;
-            
-            // Add slight shadow sprite under symbol? No, keeps it simple for now.
-            
-            rc.addChild(symbol);
-            reel.symbols.push(symbol);
-        }
-        reels.push(reel);
+  const reelLayer = new PIXI.Container();
+  root.addChild(reelLayer);
+
+  const symbolPool = ['surf','glasses','banana','coconut','FREE'];
+
+  function makeSymbol(kind) {
+    const c = new PIXI.Container();
+    const box = new PIXI.Graphics()
+      .roundRect(0, 0, CELL_W, CELL_H, 18)
+      .fill({ color: 0xffffff, alpha: 0.08 })
+      .stroke({ color: 0x9ae8ff, width: 2, alpha: 0.35 });
+    c.addChild(box);
+
+    if (kind === 'FREE') {
+      const badge = new PIXI.Graphics()
+        .roundRect(18, 38, CELL_W - 36, 72, 16)
+        .fill({ color: 0x21c2ff, alpha: 0.9 })
+        .stroke({ color: 0xffffff, width: 3, alpha: 0.9 });
+      const txt = new PIXI.Text({ text: 'FREE', style: { fill: 0xffffff, fontWeight: '800', fontSize: 36 } });
+      txt.anchor.set(0.5);
+      txt.position.set(CELL_W / 2, CELL_H / 2);
+      c.addChild(badge, txt);
+    } else {
+      const s = new PIXI.Sprite(t[kind]);
+      s.anchor.set(0.5);
+      s.position.set(CELL_W / 2, CELL_H / 2);
+      const scale = Math.min((CELL_W * 0.7) / s.width, (CELL_H * 0.7) / s.height);
+      s.scale.set(scale);
+      c.addChild(s);
     }
 
-    // 3. Header Logo
-    const logo = new PIXI.Sprite(textures.logo);
-    logo.anchor.set(0.5);
-    logo.scale.set(0.6);
-    logo.x = app.screen.width / 2;
-    logo.y = 100;
-    
-    // Float Animation for Logo
-    gsap.to(logo, { y: 110, duration: 2, yoyo: true, repeat: -1, ease: "sine.inOut" });
-    
-    app.stage.addChild(logo);
+    c.kind = kind;
+    return c;
+  }
 
-    // 4. UI Layer (SVG Buttons)
-    const uiContainer = new PIXI.Container();
-    uiContainer.y = app.screen.height - 100;
-    uiContainer.x = app.screen.width / 2;
-    app.stage.addChild(uiContainer);
+  // Reels as visible 5x3 + hidden buffer rows for smooth spin
+  const reels = [];
+  for (let col = 0; col < COLS; col++) {
+    const colWrap = new PIXI.Container();
+    colWrap.x = col * (CELL_W + SPACING);
+    reelLayer.addChild(colWrap);
 
-    // Spin Button (Center)
-    const btnSpin = new PIXI.Sprite(textures.btnSpin);
-    btnSpin.anchor.set(0.5);
-    btnSpin.scale.set(0.8);
-    btnSpin.eventMode = 'static'; // Make interactive
-    btnSpin.cursor = 'pointer';
-    uiContainer.addChild(btnSpin);
-
-    // Hover Effect
-    btnSpin.on('pointerover', () => gsap.to(btnSpin.scale, { x: 0.9, y: 0.9, duration: 0.1 }));
-    btnSpin.on('pointerout', () => gsap.to(btnSpin.scale, { x: 0.8, y: 0.8, duration: 0.1 }));
-    btnSpin.on('pointerdown', () => spin()); // Click!
-
-    // Balance (Left)
-    const uiBalance = new PIXI.Sprite(textures.uiBalance);
-    uiBalance.anchor.set(0.5);
-    uiBalance.scale.set(0.6);
-    uiBalance.x = -250;
-    uiContainer.addChild(uiBalance);
-
-    // Bet Box (Right)
-    const uiBet = new PIXI.Sprite(textures.uiBet);
-    uiBet.anchor.set(0.5);
-    uiBet.scale.set(0.6);
-    uiBet.x = 250;
-    uiContainer.addChild(uiBet);
-
-
-    // --- GAME LOGIC ---
-
-    let running = false;
-
-    // Spin Function
-    function spin() {
-        if (running) return;
-        running = true;
-
-        // Animate Button Press
-        gsap.fromTo(btnSpin.scale, { x: 0.7, y: 0.7 }, { x: 0.8, y: 0.8, duration: 0.2, ease: "back.out(2)" });
-
-        reels.forEach((r, i) => {
-            const extra = Math.floor(Math.random() * 3);
-            const target = r.position + 20 + i * 5 + extra; // More spins
-            const time = 2 + i * 0.3; // Staggered stop
-
-            // Animate position with ELASTIC easing
-            gsap.to(r, {
-                position: target,
-                duration: time,
-                ease: "back.out(0.6)", // JUICY BOUNCE!
-                onUpdate: () => {
-                    // Calculate speed for blur
-                    const speed = Math.abs(r.position - r.previousPosition);
-                    r.blur.blurY = speed * 20; // Stronger blur
-                    r.previousPosition = r.position;
-                    
-                    // Wrap symbols logic
-                    for (let j = 0; j < r.symbols.length; j++) {
-                        const s = r.symbols[j];
-                        const prevY = s.y;
-                        s.y = ((r.position + j) % r.symbols.length) * SYMBOL_SIZE - SYMBOL_SIZE;
-                        
-                        // Swap texture on wrap
-                        if (s.y < 0 && prevY > SYMBOL_SIZE) {
-                            s.texture = symbolTextures[Math.floor(Math.random() * symbolTextures.length)];
-                        }
-                    }
-                },
-                onComplete: () => {
-                    r.blur.blurY = 0;
-                    // Flash effect on stop? Maybe later.
-                    if (i === reels.length - 1) running = false;
-                }
-            });
-        });
+    const strip = [];
+    for (let i = 0; i < ROWS + 8; i++) {
+      const kind = symbolPool[(Math.random() * symbolPool.length) | 0];
+      const sym = makeSymbol(kind);
+      sym.y = i * (CELL_H + SPACING);
+      colWrap.addChild(sym);
+      strip.push(sym);
     }
 
-    // Ticker
-    app.ticker.add(() => {
-        // Keep UI centered on resize (simple logic)
-        bg.x = app.screen.width / 2;
-        bg.y = app.screen.height / 2;
-        logo.x = app.screen.width / 2;
-        uiContainer.x = app.screen.width / 2;
-        uiContainer.y = app.screen.height - 80;
-        reelContainer.x = (app.screen.width - (REEL_WIDTH * REELS)) / 2 + (REEL_WIDTH / 2);
-        reelContainer.y = (app.screen.height - (SYMBOL_SIZE * ROWS)) / 2 + (SYMBOL_SIZE / 2);
+    const blur = new PIXI.BlurFilter({ strength: 0, quality: 2 });
+    colWrap.filters = [blur];
+
+    reels.push({
+      wrap: colWrap,
+      strip,
+      pos: 0,
+      prev: 0,
+      blur
     });
+  }
 
+  // Sidebar multipliers (left)
+  const side = new PIXI.Container();
+  stage.addChild(side);
+  const mults = ['x260', 'x25', 'x2', 'x1'];
+  mults.forEach((m, i) => {
+    const pill = new PIXI.Graphics()
+      .roundRect(0, i * 72, 84, 58, 14)
+      .fill({ color: i === 0 ? 0x2fda7e : 0x1b3d5e, alpha: 0.95 })
+      .stroke({ color: 0xffffff, width: 2, alpha: 0.55 });
+    const txt = new PIXI.Text({ text: m, style: { fill: 0xffffff, fontWeight: '700', fontSize: 24 } });
+    txt.anchor.set(0.5);
+    txt.position.set(42, i * 72 + 29);
+    side.addChild(pill, txt);
+  });
+
+  // HUD bottom
+  const hud = new PIXI.Container();
+  stage.addChild(hud);
+
+  function hudBox(w, h, label, value) {
+    const c = new PIXI.Container();
+    const g = new PIXI.Graphics()
+      .roundRect(0, 0, w, h, 16)
+      .fill({ color: 0x123457, alpha: 0.9 })
+      .stroke({ color: 0x7fdfff, width: 2, alpha: 0.6 });
+    const l = new PIXI.Text({ text: label, style: { fill: 0x9ec9ec, fontSize: 16 } });
+    l.position.set(14, 8);
+    const v = new PIXI.Text({ text: value, style: { fill: 0xffffff, fontSize: 26, fontWeight: '700' } });
+    v.position.set(14, 28);
+    c.addChild(g, l, v);
+    c.valueText = v;
+    return c;
+  }
+
+  const balanceBox = hudBox(230, 86, 'BALANCE', '$43,545.45');
+  const betBox = hudBox(210, 86, 'BET', '$10.00');
+  const lastWinBox = hudBox(240, 86, 'LAST WIN', '$0.00');
+  hud.addChild(balanceBox, betBox, lastWinBox);
+
+  const spinBtn = new PIXI.Container();
+  const spinG = new PIXI.Graphics()
+    .circle(0, 0, 62)
+    .fill({ color: 0xffcb22 })
+    .stroke({ color: 0xff8c00, width: 6 });
+  const spinT = new PIXI.Text({ text: 'SPIN', style: { fill: 0x1f1f1f, fontSize: 28, fontWeight: '900' } });
+  spinT.anchor.set(0.5);
+  spinBtn.addChild(spinG, spinT);
+  spinBtn.eventMode = 'static';
+  spinBtn.cursor = 'pointer';
+  hud.addChild(spinBtn);
+
+  const logo = new PIXI.Sprite(t.logo);
+  logo.anchor.set(0.5);
+  logo.scale.set(0.5);
+  stage.addChild(logo);
+
+  // --------- GAME STATE ---------
+  let state = 'IDLE';
+  let freeSpins = 0;
+
+  function layout() {
+    bg.position.set(app.screen.width / 2, app.screen.height / 2);
+    bg.scale.set(Math.max(app.screen.width / bg.width, app.screen.height / bg.height));
+
+    root.position.set((app.screen.width - REEL_W) / 2, (app.screen.height - REEL_H) / 2 - 20);
+    side.position.set(root.x - 110, root.y + 50);
+
+    hud.position.set((app.screen.width - (230 + 210 + 240 + 240)) / 2, app.screen.height - 120);
+    balanceBox.position.set(0, 0);
+    betBox.position.set(250, 0);
+    spinBtn.position.set(530, 44);
+    lastWinBox.position.set(630, 0);
+
+    logo.position.set(app.screen.width / 2, 76);
+  }
+
+  function spin() {
+    if (state !== 'IDLE') return;
+    state = 'SPINNING';
+
+    gsap.fromTo(spinBtn.scale, { x: 0.9, y: 0.9 }, { x: 1, y: 1, duration: 0.2, ease: 'back.out(3)' });
+
+    reels.forEach((r, i) => {
+      const target = r.pos + 20 + i * 4 + ((Math.random() * 3) | 0);
+      gsap.to(r, {
+        pos: target,
+        duration: 2.2 + i * 0.25,
+        ease: 'back.out(0.65)',
+        onUpdate: () => {
+          const speed = Math.abs(r.pos - r.prev);
+          r.blur.blurY = speed * 18;
+          r.prev = r.pos;
+
+          for (let j = 0; j < r.strip.length; j++) {
+            const sym = r.strip[j];
+            const oldY = sym.y;
+            sym.y = ((r.pos + j) % r.strip.length) * (CELL_H + SPACING) - (CELL_H + SPACING);
+            if (sym.y < 0 && oldY > (CELL_H + SPACING) * (ROWS + 2)) {
+              const kind = symbolPool[(Math.random() * symbolPool.length) | 0];
+              const fresh = makeSymbol(kind);
+              fresh.y = sym.y;
+              r.wrap.removeChild(sym);
+              r.wrap.addChild(fresh);
+              r.strip[j] = fresh;
+            }
+          }
+        },
+        onComplete: () => {
+          r.blur.blurY = 0;
+          if (i === reels.length - 1) {
+            settleWin();
+            state = 'IDLE';
+          }
+        }
+      });
+    });
+  }
+
+  function visibleGridKinds() {
+    // take first 3 visible symbols per reel by y position sorting
+    const grid = [];
+    reels.forEach((r, col) => {
+      const sorted = [...r.strip].sort((a, b) => a.y - b.y).filter(s => s.y >= -5 && s.y < REEL_H + 5).slice(0, ROWS);
+      grid[col] = sorted.map(s => s.kind);
+    });
+    return grid;
+  }
+
+  function settleWin() {
+    const grid = visibleGridKinds();
+    let freeCount = 0;
+    for (let c = 0; c < COLS; c++) {
+      for (let r = 0; r < ROWS; r++) {
+        if (grid[c]?.[r] === 'FREE') freeCount++;
+      }
+    }
+
+    if (freeCount >= FREE_TRIGGER) {
+      freeSpins += 8;
+      flashBanner(`FREE SPINS +8  (total ${freeSpins})`);
+      lastWinBox.valueText.text = '$120.00';
+      return;
+    }
+
+    // Simple random payout demo
+    const payout = (Math.random() < 0.35) ? (Math.floor(Math.random() * 80) + 10) : 0;
+    lastWinBox.valueText.text = `$${payout.toFixed(2)}`;
+    if (payout > 0) flashBanner(`WIN $${payout.toFixed(2)}`);
+  }
+
+  const banner = new PIXI.Container();
+  stage.addChild(banner);
+  const bannerBg = new PIXI.Graphics().roundRect(0, 0, 430, 58, 14).fill({ color: 0x0f2948, alpha: 0.92 }).stroke({ color: 0xffd34a, width: 3 });
+  const bannerText = new PIXI.Text({ text: '', style: { fill: 0xffffff, fontSize: 24, fontWeight: '800' } });
+  bannerText.anchor.set(0.5);
+  bannerText.position.set(215, 29);
+  banner.addChild(bannerBg, bannerText);
+  banner.visible = false;
+
+  function flashBanner(msg) {
+    bannerText.text = msg;
+    banner.position.set((app.screen.width - 430) / 2, app.screen.height - 195);
+    banner.alpha = 0;
+    banner.visible = true;
+    gsap.timeline()
+      .to(banner, { alpha: 1, duration: 0.18 })
+      .to(banner, { alpha: 1, duration: 0.9 })
+      .to(banner, { alpha: 0, duration: 0.35, onComplete: () => banner.visible = false });
+  }
+
+  spinBtn.on('pointerdown', spin);
+  gsap.to(logo, { y: '+=8', duration: 1.6, repeat: -1, yoyo: true, ease: 'sine.inOut' });
+
+  window.addEventListener('resize', layout);
+  layout();
 </script>
 </body>
 </html>
