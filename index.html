@@ -19,7 +19,8 @@
 
   const ASSETS = {
     bg: './assets/background.png',
-    logo: './assets/ui_freespins.png',
+    logo: './assets/logo_main.png',
+    freeBadge: './assets/ui_freespins.png',
     surf: './assets/symbol_surf.png',
     glasses: './assets/symbol_glasses.png',
     banana: './assets/symbol_banana.png',
@@ -78,14 +79,12 @@
     c.addChild(box);
 
     if (kind === 'FREE') {
-      const badge = new PIXI.Graphics()
-        .roundRect(18, 38, CELL_W - 36, 72, 16)
-        .fill({ color: 0x21c2ff, alpha: 0.9 })
-        .stroke({ color: 0xffffff, width: 3, alpha: 0.9 });
-      const txt = new PIXI.Text({ text: 'FREE', style: { fill: 0xffffff, fontWeight: '800', fontSize: 36 } });
-      txt.anchor.set(0.5);
-      txt.position.set(CELL_W / 2, CELL_H / 2);
-      c.addChild(badge, txt);
+      const free = new PIXI.Sprite(t.freeBadge);
+      free.anchor.set(0.5);
+      free.position.set(CELL_W / 2, CELL_H / 2);
+      const scale = Math.min((CELL_W * 0.78) / free.width, (CELL_H * 0.72) / free.height);
+      free.scale.set(scale);
+      c.addChild(free);
     } else {
       const s = new PIXI.Sprite(t[kind]);
       s.anchor.set(0.5);
